@@ -7,52 +7,42 @@ from sklearn.preprocessing import StandardScaler
 import datetime
 import os
 import time
-
-# Tích hợp Keras cho Mạng Nơ-ron Autoencoder
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Input
-
-# Import thư viện vnstock
 from vnstock import Quote
+
+# 1. PAGE CONFIG PHẢI NẰM NGAY ĐÂY (TRƯỚC MỌI THỨ CỦA STREAMLIT)
+st.set_page_config(page_title="Quant ML: Advanced Market Sentiment", layout="wide")
+
+# 2. KHAI BÁO HÀM KIỂM TRA MẬT KHẨU
 def check_password():
-    """Hàm này trả về True nếu người dùng nhập đúng mật khẩu."""
-    
     def password_entered():
-        """Kiểm tra mật khẩu người dùng nhập với mật khẩu trong Secrets."""
         if st.session_state["password"] == st.secrets["passwords"]["app_password"]:
             st.session_state["password_correct"] = True
-            # Xóa mật khẩu khỏi session_state để bảo mật
             del st.session_state["password"]  
         else:
             st.session_state["password_correct"] = False
 
-    # Nếu chưa từng nhập mật khẩu
     if "password_correct" not in st.session_state:
         st.text_input("Vui lòng nhập mật khẩu để truy cập:", type="password", on_change=password_entered, key="password")
         return False
         
-    # Nếu đã nhập nhưng sai mật khẩu
     elif not st.session_state["password_correct"]:
         st.text_input("Vui lòng nhập mật khẩu để truy cập:", type="password", on_change=password_entered, key="password")
         st.error("😕 Mật khẩu không chính xác. Vui lòng thử lại!")
         return False
         
-    # Nếu nhập đúng mật khẩu
     else:
         return True
 
-# --- PHẦN LOGIC CHÍNH CỦA ỨNG DỤNG ---
-if check_password():
-    st.success("Đăng nhập thành công!")
-    st.title("Đây là nội dung ứng dụng của bạn")
-    st.write("Bây giờ người dùng mới có thể nhìn thấy phần này.")
-    # Đặt toàn bộ code ứng dụng của bạn ở dưới đây
+# 3. LẬP CHỐT CHẶN (BARIE) BẰNG ST.STOP()
+if not check_password():
+    st.stop() # Lệnh này sẽ dừng toàn bộ code bên dưới nếu chưa nhập đúng mật khẩu
 
 # ==============================================================================
 # 1. CẤU HÌNH HỆ THỐNG & DANH MỤC (Chuẩn hóa vốn hóa 2026)
 # ==============================================================================
-st.set_page_config(page_title="Quant ML: Advanced Market Sentiment", layout="wide")
 
 os.environ['VNSTOCK_API_KEY'] = "vnstock_17b56a86b930db526e25e8de447a0bfd"
 LOCAL_DATA_FILE = "market_data_lake.parquet"
@@ -530,3 +520,4 @@ elif menu == "C. Backtest Center":
                     )
 
                     st.plotly_chart(fig2, use_container_width=True)
+
