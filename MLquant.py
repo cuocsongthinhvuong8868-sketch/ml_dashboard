@@ -95,7 +95,7 @@ def sync_market_data(years=5, force_full=False):
             success = False
             
             # Ưu tiên API nội địa
-            sources_to_try = ['TCBS', 'VND', 'KBS']
+            sources_to_try = ['VCI', 'KBS']
             for source in sources_to_try:
                 try:
                     q = Quote(symbol=ticker, source=source)
@@ -648,4 +648,5 @@ elif menu == "C. Backtest Center":
             fig2.add_hline(y=61.5, line_width=1.5, line_dash="dash", line_color="black", annotation_text="61.5%", annotation_font=dict(color="black"))
             fig2.add_hline(y=45, line_width=2, line_dash="solid", line_color="blue", annotation_text="45%", annotation_position="bottom right", annotation_font=dict(color="blue"))
             fig2.update_layout(title="2. Định vị Nguồn gốc Rủi ro (Large-cap vs Mid/Penny)", yaxis=dict(title="Tỉ lệ Large-cap / Flagged (%)", range=[0, 105]), hovermode="x unified", template="plotly_white")
+
             st.plotly_chart(fig2, use_container_width=True)
