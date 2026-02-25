@@ -14,7 +14,40 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Input
 
 # Import thư viện vnstock
-from vnstock import Quote 
+from vnstock import Quote
+def check_password():
+    """Hàm này trả về True nếu người dùng nhập đúng mật khẩu."""
+    
+    def password_entered():
+        """Kiểm tra mật khẩu người dùng nhập với mật khẩu trong Secrets."""
+        if st.session_state["password"] == st.secrets["passwords"]["app_password"]:
+            st.session_state["password_correct"] = True
+            # Xóa mật khẩu khỏi session_state để bảo mật
+            del st.session_state["password"]  
+        else:
+            st.session_state["password_correct"] = False
+
+    # Nếu chưa từng nhập mật khẩu
+    if "password_correct" not in st.session_state:
+        st.text_input("Vui lòng nhập mật khẩu để truy cập:", type="password", on_change=password_entered, key="password")
+        return False
+        
+    # Nếu đã nhập nhưng sai mật khẩu
+    elif not st.session_state["password_correct"]:
+        st.text_input("Vui lòng nhập mật khẩu để truy cập:", type="password", on_change=password_entered, key="password")
+        st.error("😕 Mật khẩu không chính xác. Vui lòng thử lại!")
+        return False
+        
+    # Nếu nhập đúng mật khẩu
+    else:
+        return True
+
+# --- PHẦN LOGIC CHÍNH CỦA ỨNG DỤNG ---
+if check_password():
+    st.success("Đăng nhập thành công!")
+    st.title("Đây là nội dung ứng dụng của bạn")
+    st.write("Bây giờ người dùng mới có thể nhìn thấy phần này.")
+    # Đặt toàn bộ code ứng dụng của bạn ở dưới đây
 
 # ==============================================================================
 # 1. CẤU HÌNH HỆ THỐNG & DANH MỤC (Chuẩn hóa vốn hóa 2026)
@@ -495,4 +528,5 @@ elif menu == "C. Backtest Center":
                         hovermode="x unified", height=400,
                         template="plotly_white", paper_bgcolor='white', plot_bgcolor='white', font=dict(color="black"), legend=dict(font=dict(color="black"))
                     )
+
                     st.plotly_chart(fig2, use_container_width=True)
