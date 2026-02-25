@@ -484,9 +484,9 @@ elif menu == "C. Backtest Center":
                     fig2.add_trace(go.Bar(x=df_res['Date'], y=df_res['Large_Cap_Ratio'], name='Tỉ lệ ngày lẻ', marker_color='rgba(156, 114, 186, 0.4)'))
                     fig2.add_trace(go.Scatter(x=df_res['Date'], y=df_res[f'Ratio_EMA_{ema_span}'], mode='lines', name=f'Xu hướng cấu trúc (EMA {ema_span})', line=dict(color='#6a0dad', width=3)))
                     
-                    fig2.add_hline(y=80, line_width=2, line_dash="solid", line_color="red", annotation_text="> 80%: Dòng tiền lớn tháo chạy", annotation_font=dict(color="red"))
+                    fig2.add_hline(y=80, line_width=2, line_dash="solid", line_color="red", annotation_text="> 80%: ngưỡng trên", annotation_font=dict(color="red"))
                     fig2.add_hline(y=61.5, line_width=1.5, line_dash="dash", line_color="black", annotation_text="61.5%: Cân bằng tự nhiên", annotation_font=dict(color="black"))
-                    fig2.add_hline(y=45, line_width=2, line_dash="solid", line_color="blue", annotation_text="< 45%: Đầu cơ sụp đổ", annotation_position="bottom right", annotation_font=dict(color="blue"))
+                    fig2.add_hline(y=45, line_width=2, line_dash="solid", line_color="blue", annotation_text="< 45%: ngưỡng dưới", annotation_position="bottom right", annotation_font=dict(color="blue"))
                     
                     fig2.update_layout(
                         title=dict(text="2. Định vị Nguồn gốc Rủi ro (Large-cap vs Mid/Penny)", font=dict(color="black", size=18)),
@@ -496,3 +496,4 @@ elif menu == "C. Backtest Center":
                         template="plotly_white", paper_bgcolor='white', plot_bgcolor='white', font=dict(color="black"), legend=dict(font=dict(color="black"))
                     )
                     st.plotly_chart(fig2, use_container_width=True)
+
