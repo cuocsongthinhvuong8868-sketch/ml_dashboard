@@ -15,30 +15,36 @@ from vnstock import Quote
 # 1. PAGE CONFIG PHẢI NẰM NGAY ĐÂY (TRƯỚC MỌI THỨ CỦA STREAMLIT)
 st.set_page_config(page_title="Quant ML: Advanced Market Sentiment", layout="wide")
 
-# 2. KHAI BÁO HÀM KIỂM TRA MẬT KHẨU
+# 2. HÀM KIỂM TRA MẬT KHẨU CÓ NÚT ĐĂNG NHẬP
 def check_password():
-    def password_entered():
-        if st.session_state["password"] == st.secrets["passwords"]["app_password"]:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  
-        else:
-            st.session_state["password_correct"] = False
-
-    if "password_correct" not in st.session_state:
-        st.text_input("Vui lòng nhập mật khẩu để truy cập:", type="password", on_change=password_entered, key="password")
-        return False
-        
-    elif not st.session_state["password_correct"]:
-        st.text_input("Vui lòng nhập mật khẩu để truy cập:", type="password", on_change=password_entered, key="password")
-        st.error("😕 Mật khẩu không chính xác. Vui lòng thử lại!")
-        return False
-        
-    else:
+    """Hàm kiểm tra mật khẩu bằng Form và nút Submit."""
+    
+    # Nếu đã đăng nhập đúng từ trước, cho qua luôn
+    if st.session_state.get("password_correct", False):
         return True
+
+    # Tạo một hộp thoại (form) đăng nhập
+    with st.form("login_form"):
+        st.subheader("🔒 Đăng nhập hệ thống Quant ML")
+        password_input = st.text_input("Vui lòng nhập mật khẩu (Token) để truy cập:", type="password")
+        
+        # Nút bấm Đăng nhập
+        submit_button = st.form_submit_button("Đăng nhập")
+
+    # Xử lý sự kiện khi người dùng bấm nút
+    if submit_button:
+        # Kiểm tra mật khẩu (lấy từ secrets.toml)
+        if password_input == st.secrets["passwords"]["app_password"]:
+            st.session_state["password_correct"] = True
+            st.rerun() # Tải lại trang ngay lập tức để ẩn form và hiện app
+        else:
+            st.error("😕 Mật khẩu không chính xác. Vui lòng thử lại!")
+            
+    return False
 
 # 3. LẬP CHỐT CHẶN (BARIE) BẰNG ST.STOP()
 if not check_password():
-    st.stop() # Lệnh này sẽ dừng toàn bộ code bên dưới nếu chưa nhập đúng mật khẩu
+    st.stop() # Chặn toàn bộ code bên dưới nếu chưa đăng nhập đúng
 
 # ==============================================================================
 # 1. CẤU HÌNH HỆ THỐNG & DANH MỤC (Chuẩn hóa vốn hóa 2026)
@@ -520,4 +526,5 @@ elif menu == "C. Backtest Center":
                     )
 
                     st.plotly_chart(fig2, use_container_width=True)
+
 
