@@ -9,20 +9,25 @@ import os
 import time
 import yfinance as yf
 
+# ---------------------------------------------------------
+# BẮT BUỘC: Khai báo API Key TRƯỚC khi import vnstock
+# ---------------------------------------------------------
+os.environ['VNSTOCK_API_KEY'] = "vnstock_17b56a86b930db526e25e8de447a0bfd"
+from vnstock import Quote 
+
 # Tích hợp Keras cho Mạng Nơ-ron Autoencoder
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Input
 
-# Import thư viện vnstock
-from vnstock import Quote 
+import warnings
+warnings.filterwarnings('ignore')
 
 # ==============================================================================
 # 1. CẤU HÌNH HỆ THỐNG & DANH MỤC
 # ==============================================================================
 st.set_page_config(page_title="Quant ML: Advanced Market Sentiment", layout="wide")
 
-os.environ['VNSTOCK_API_KEY'] = "vnstock_17b56a86b930db526e25e8de447a0bfd"
 LOCAL_DATA_FILE = "market_data_lake.parquet"
 ML_RESULTS_FILE = "ml_results_lake.parquet"
 
@@ -62,7 +67,7 @@ def export_csv_button(df, file_name, button_label="📥 Tải Báo cáo (CSV)"):
     st.download_button(label=button_label, data=csv, file_name=file_name, mime='text/csv')
 
 # ==============================================================================
-# 2. HỆ THỐNG QUẢN LÝ DỮ LIỆU (HYBRID ENGINE)
+# 2. HỆ THỐNG QUẢN LÝ DỮ LIỆU (HYBRID ENGINE ĐƯỢC CẤY VÀO STREAMLIT)
 # ==============================================================================
 def sync_market_data(years=5, force_full=False):
     tickers_list = list(ALL_TICKERS.keys())
@@ -77,13 +82,10 @@ def sync_market_data(years=5, force_full=False):
     progress_bar = st.progress(0)
     status_text = st.empty()
     new_data = []
-    failed_tickers = [] 
     
-    end_str = end_date.strftime("%Y-%m-%d")
-    
-    for i, ticker in enumerate(tickers_list):
-        status_text.markdown(f"**Đang kiểm tra & tải dữ liệu:** {ticker} ({i+1}/{len(tickers_list)})")
-        
+    # Chuẩn bị danh sách các mã cần tải
+    tasks = []
+    for ticker in tickers_list:
         if not df_existing.empty and ticker in df_existing['ticker'].values:
             last_date = pd.to_datetime(df_existing[df_existing['ticker'] == ticker]['time']).max().date()
             start_date = last_date + datetime.timedelta(days=1)
@@ -91,51 +93,85 @@ def sync_market_data(years=5, force_full=False):
             start_date = req_start_date
             
         if start_date <= end_date:
-            start_str = start_date.strftime("%Y-%m-%d")
-            success = False
+            tasks.append((ticker, start_date))
             
-            # Ưu tiên API nội địa
-            sources_to_try = ['VCI', 'KBS']
-            for source in sources_to_try:
-                try:
-                    q = Quote(symbol=ticker, source=source)
-                    df = q.history(start=start_str, end=end_str)
-                    if df is not None and not df.empty and 'volume' in df.columns:
-                        df['time'] = pd.to_datetime(df['time']).dt.normalize()
-                        df['ticker'] = ticker
-                        new_data.append(df[['time', 'close', 'volume', 'ticker']])
-                        success = True
-                        break 
-                except: continue 
-            
-            # Fallback Yahoo Finance
-            if not success:
-                try:
-                    stock = yf.Ticker(ticker + ".VN")
-                    df_yf = stock.history(start=start_str, end=end_str)
-                    if not df_yf.empty:
-                        df_yf = df_yf.reset_index()
-                        date_col = 'Date' if 'Date' in df_yf.columns else df_yf.columns[0]
-                        df_yf['time'] = pd.to_datetime(df_yf[date_col]).dt.tz_localize(None).dt.normalize()
-                        df_yf['close'] = df_yf['Close']
-                        df_yf['volume'] = df_yf['Volume']
-                        df_yf['ticker'] = ticker
-                        new_data.append(df_yf[['time', 'close', 'volume', 'ticker']])
-                        success = True
-                except: pass
-            
-            if not success:
-                failed_tickers.append(ticker)
-                
-            time.sleep(1.2)
-            
-        progress_bar.progress((i + 1) / len(tickers_list))
+    if not tasks:
+        progress_bar.empty(); status_text.empty()
+        return False, "Dữ liệu các mã đều đã đầy đủ, không cần tải thêm."
         
+    end_str = end_date.strftime("%Y-%m-%d")
+    failed_yahoo = []
+    failed_all = []
+    
+    total_tasks = len(tasks)
+    
+    # ---------------------------------------------------------
+    # GIAI ĐOẠN 1: TẢI BẰNG YAHOO FINANCE (0.3s)
+    # ---------------------------------------------------------
+    for i, (ticker, start_date) in enumerate(tasks):
+        start_str = start_date.strftime("%Y-%m-%d")
+        status_text.markdown(f"**GĐ1 - Yahoo Finance:** Đang tải `{ticker}` ({i+1}/{total_tasks})...")
+        
+        success = False
+        try:
+            yf_ticker = ticker + ".VN"
+            stock = yf.Ticker(yf_ticker)
+            df_yf = stock.history(start=start_str, end=end_str)
+            
+            if not df_yf.empty:
+                df_yf = df_yf.reset_index()
+                date_col = 'Date' if 'Date' in df_yf.columns else df_yf.columns[0]
+                df_yf['time'] = pd.to_datetime(df_yf[date_col]).dt.tz_localize(None).dt.normalize()
+                df_yf['close'] = df_yf['Close']
+                df_yf['volume'] = df_yf['Volume']
+                df_yf['ticker'] = ticker
+                new_data.append(df_yf[['time', 'close', 'volume', 'ticker']])
+                success = True
+        except:
+            pass
+            
+        if success:
+            time.sleep(0.3)
+        else:
+            failed_yahoo.append((ticker, start_str))
+            
+        # Update progress (Phase 1 accounts for 50% of the bar max if there are failures)
+        progress_bar.progress((i + 1) / (total_tasks + len(failed_yahoo) if failed_yahoo else total_tasks))
+
+    # ---------------------------------------------------------
+    # GIAI ĐOẠN 2: TẢI BÙ BẰNG VNSTOCK KBS (1.1s)
+    # ---------------------------------------------------------
+    if failed_yahoo:
+        total_fail = len(failed_yahoo)
+        for i, (ticker, start_str) in enumerate(failed_yahoo):
+            status_text.markdown(f"**GĐ2 - VNStock (KBS):** Đang vá dữ liệu `{ticker}` ({i+1}/{total_fail})...")
+            success = False
+            try:
+                q = Quote(symbol=ticker, source='KBS')
+                df = q.history(start=start_str, end=end_str)
+                
+                if df is not None and not df.empty and 'volume' in df.columns:
+                    df['time'] = pd.to_datetime(df['time']).dt.normalize()
+                    df['ticker'] = ticker
+                    new_data.append(df[['time', 'close', 'volume', 'ticker']])
+                    success = True
+            except:
+                pass
+                
+            time.sleep(1.1) # Bắt buộc nghỉ chống block
+            
+            if not success:
+                failed_all.append(ticker)
+                
+            progress_bar.progress((total_tasks + i + 1) / (total_tasks + total_fail))
+
     progress_bar.empty(); status_text.empty()
     
-    if failed_tickers:
-        st.warning(f"⚠️ Lỗi kết nối API ở các mã: {', '.join(failed_tickers)}")
-    
+    if failed_all:
+        st.warning(f"⚠️ Các mã lỗi tuyệt đối (Đã thử mọi cách đều tạch): {', '.join(failed_all)}")
+    elif failed_yahoo:
+        st.success(f"🎉 VNStock đã vá thành công toàn bộ {len(failed_yahoo)} mã Yahoo bỏ sót!")
+        
     if new_data:
         df_new = pd.concat(new_data)
         if not df_existing.empty and not force_full:
@@ -144,13 +180,11 @@ def sync_market_data(years=5, force_full=False):
             df_final = df_new
         df_final.to_parquet(LOCAL_DATA_FILE)
         return True, f"Đã cập nhật dữ liệu thành công!"
-    
-    if not failed_tickers:
-        return False, "Dữ liệu các mã đều đã đầy đủ, không cần tải thêm."
+        
     return False, "Có lỗi xảy ra, không lấy được dữ liệu mới."
 
 def force_redownload_ticker(ticker_to_fix, years=15):
-    """Xóa sạch mã cũ bị lỗi và tải lại duy nhất mã đó bằng Hybrid Engine"""
+    """CÔNG CỤ PHẪU THUẬT: Xóa sạch mã cũ bị lỗi và tải lại bằng Hybrid Engine"""
     ticker_to_fix = ticker_to_fix.upper()
     
     if os.path.exists(LOCAL_DATA_FILE):
@@ -172,33 +206,36 @@ def force_redownload_ticker(ticker_to_fix, years=15):
     success = False
     new_data = []
     
-    sources_to_try = ['TCBS', 'VND', 'KBS']
-    for source in sources_to_try:
+    # 1. Thử Yahoo trước
+    try:
+        yf_ticker = ticker_to_fix + ".VN"
+        stock = yf.Ticker(yf_ticker)
+        df_yf = stock.history(start=start_str, end=end_str)
+        if not df_yf.empty:
+            df_yf = df_yf.reset_index()
+            date_col = 'Date' if 'Date' in df_yf.columns else df_yf.columns[0]
+            df_yf['time'] = pd.to_datetime(df_yf[date_col]).dt.tz_localize(None).dt.normalize()
+            df_yf['close'] = df_yf['Close']
+            df_yf['volume'] = df_yf['Volume']
+            df_yf['ticker'] = ticker_to_fix
+            new_data.append(df_yf[['time', 'close', 'volume', 'ticker']])
+            success = True
+    except: pass
+    
+    if success:
+        time.sleep(0.3)
+    else:
+        # 2. Vá bằng VNStock KBS
         try:
-            q = Quote(symbol=ticker_to_fix, source=source)
+            q = Quote(symbol=ticker_to_fix, source='KBS')
             df = q.history(start=start_str, end=end_str)
             if df is not None and not df.empty and 'volume' in df.columns:
                 df['time'] = pd.to_datetime(df['time']).dt.normalize()
                 df['ticker'] = ticker_to_fix
                 new_data.append(df[['time', 'close', 'volume', 'ticker']])
                 success = True
-                break
         except: pass
-        
-    if not success:
-        try:
-            stock = yf.Ticker(ticker_to_fix + ".VN")
-            df_yf = stock.history(start=start_str, end=end_str)
-            if not df_yf.empty:
-                df_yf = df_yf.reset_index()
-                date_col = 'Date' if 'Date' in df_yf.columns else df_yf.columns[0]
-                df_yf['time'] = pd.to_datetime(df_yf[date_col]).dt.tz_localize(None).dt.normalize()
-                df_yf['close'] = df_yf['Close']
-                df_yf['volume'] = df_yf['Volume']
-                df_yf['ticker'] = ticker_to_fix
-                new_data.append(df_yf[['time', 'close', 'volume', 'ticker']])
-                success = True
-        except: pass
+        time.sleep(1.1)
         
     if success and new_data:
         df_new = pd.concat(new_data)
@@ -273,6 +310,7 @@ def run_ml_for_single_day(df_daily, historical_features_list, threshold_percenti
     iso.fit(X_train_scaled) 
     df_daily['Iso_Anomaly'] = iso.predict(X_today_scaled)
     
+    tf.get_logger().setLevel('ERROR')
     ae = Sequential([Input(shape=(4,)), Dense(8, activation='relu'), Dense(4, activation='linear')])
     ae.compile(optimizer='adam', loss='mse')
     ae.fit(X_train_scaled, X_train_scaled, epochs=5, batch_size=64, verbose=0) 
@@ -303,12 +341,14 @@ def sync_ml_results_lake(matrices):
     new_results = []
     historical_features_window = []
     
+    total_dates = len(dates_to_compute)
+    
     for i, current_date in enumerate(all_dates):
         df_daily = build_daily_features(matrices, current_date)
         
         if df_daily is not None and len(df_daily) > 30:
             if current_date in dates_to_compute:
-                status_text.markdown(f"**Đang tính AI (Batch):** {current_date.strftime('%Y-%m-%d')} ({len(new_results)+1}/{len(dates_to_compute)})")
+                status_text.markdown(f"**Đang tính AI (Batch):** {current_date.strftime('%Y-%m-%d')} ({len(new_results)+1}/{total_dates})")
                 res_df = run_ml_for_single_day(df_daily.copy(), historical_features_window, threshold_percentile=90)
                 if res_df is not None:
                     res_df['Date'] = current_date
@@ -367,7 +407,6 @@ def run_micro_ai_for_ticker(ticker):
 # ==============================================================================
 st.sidebar.title("🎛️ Data Manager")
 
-# KHÔI PHỤC CÔNG CỤ A & B
 st.sidebar.markdown("---")
 st.sidebar.subheader("A. Xem Nhanh Hôm Nay")
 if st.sidebar.button("⚡ Tải nhanh 3 tháng & Xử lý AI"):
@@ -383,7 +422,7 @@ if st.sidebar.button("⚡ Tải nhanh 3 tháng & Xử lý AI"):
 
 st.sidebar.subheader("B. Khởi tạo Backtest (Lần đầu)")
 fetch_years = st.sidebar.number_input("Nhập số năm:", min_value=1, max_value=20, value=15, step=1)
-if st.sidebar.button(f"📥 1. Đồng bộ VNStock ({fetch_years} năm)"):
+if st.sidebar.button(f"📥 1. Đồng bộ Dữ liệu ({fetch_years} năm)"):
     with st.spinner(f"Đang tải FULL {fetch_years} năm dữ liệu..."):
         succ, msg = sync_market_data(years=fetch_years, force_full=True)
         st.cache_data.clear()
@@ -399,7 +438,6 @@ if st.sidebar.button("🧠 2. Pre-computation (Xử lý AI)"):
             if succ: st.sidebar.success(msg); time.sleep(1); st.rerun()
             else: st.sidebar.error(msg)
 
-# CÔNG CỤ C: UPLOAD & AUTO UPDATE
 st.sidebar.markdown("---")
 st.sidebar.subheader("C. Nhập Dữ Liệu & Cập Nhật")
 st.sidebar.markdown("**1. Nạp file có sẵn (Upload):**")
@@ -432,13 +470,12 @@ if st.sidebar.button("🔄 Auto Update (Data + AI)"):
             time.sleep(1.5); st.rerun()
         else: st.sidebar.error("Lỗi đọc ma trận.")
 
-# CÔNG CỤ D: PHẪU THUẬT MÃ LỖI
 st.sidebar.markdown("---")
 st.sidebar.subheader("D. Sửa Lỗi Từng Mã")
 fix_ticker = st.sidebar.text_input("Nhập mã bị kẹt (VD: ACB):").upper()
 if st.sidebar.button("🛠️ Xóa & Tải lại mã này"):
     if fix_ticker:
-        with st.spinner(f"Đang thay máu 15 năm dữ liệu cho {fix_ticker}..."):
+        with st.spinner(f"Đang thay máu dữ liệu cho {fix_ticker}..."):
             succ, msg = force_redownload_ticker(fix_ticker, years=15)
             if succ:
                 st.cache_data.clear()
@@ -449,7 +486,6 @@ if st.sidebar.button("🛠️ Xóa & Tải lại mã này"):
             else: st.sidebar.error(msg)
     else: st.sidebar.warning("Vui lòng nhập tên mã.")
 
-# CÔNG CỤ E: LƯU TRỮ & QUẢN TRỊ
 st.sidebar.markdown("---")
 st.sidebar.subheader("E. Lưu Trữ & Quản Trị")
 if os.path.exists(LOCAL_DATA_FILE):
@@ -648,5 +684,4 @@ elif menu == "C. Backtest Center":
             fig2.add_hline(y=61.5, line_width=1.5, line_dash="dash", line_color="black", annotation_text="61.5%", annotation_font=dict(color="black"))
             fig2.add_hline(y=45, line_width=2, line_dash="solid", line_color="blue", annotation_text="45%", annotation_position="bottom right", annotation_font=dict(color="blue"))
             fig2.update_layout(title="2. Định vị Nguồn gốc Rủi ro (Large-cap vs Mid/Penny)", yaxis=dict(title="Tỉ lệ Large-cap / Flagged (%)", range=[0, 105]), hovermode="x unified", template="plotly_white")
-
             st.plotly_chart(fig2, use_container_width=True)
