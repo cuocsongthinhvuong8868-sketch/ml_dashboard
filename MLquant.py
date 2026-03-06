@@ -536,7 +536,6 @@ if menu == "A. Micro-AI Radar (Mã lẻ)":
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("Không có dữ liệu cho khoảng thời gian này.")
-
 # ==========================================
 # MODULE B: ML MARKET SCANNER 
 # ==========================================
@@ -557,9 +556,11 @@ elif menu == "B. ML Market Scanner (Vĩ mô)":
 
             df_flagged = df_day[df_day['Is_Flagged'] == True]
             heat_rate = (len(df_flagged) / len(df_day)) * 100
-            counts = df_flagged['Cap'].value_counts()
             total_flagged = len(df_flagged)
-            large_cap_ratio = (counts.get('Large', 0) / total_flagged * 100) if total_flagged > 0 else 0
+            
+            # Tính số lượng VN30 bị cắm cờ
+            vn30_flagged = df_flagged[df_flagged['Ticker'].isin(VN30_TICKERS)].shape[0]
+            vn30_ratio = (vn30_flagged / total_flagged * 100) if total_flagged > 0 else 0
             
             st.subheader("📊 Chỉ số Vĩ mô & Dòng tiền")
             col1, col2, col3 = st.columns(3)
@@ -570,14 +571,21 @@ elif menu == "B. ML Market Scanner (Vĩ mô)":
             col4, col5, col6 = st.columns(3)
             col4.metric("Phân tán sinh lời", f"{df_day['Return_Dispersion'].iloc[0]:.4f}")
             col5.metric("Tổng mã bất thường", f"{total_flagged} mã")
-            col6.metric("Tỉ lệ Large-cap / Flagged", f"{large_cap_ratio:.1f}%")
+            # Đổi tên Metric hiển thị
+            col6.metric("Tỉ lệ VN30 / Flagged", f"{vn30_ratio:.1f}%")
             
+            # Cập nhật logic in cảnh báo theo tỷ trọng mới của VN30
             if heat_rate >= 35.0:
-                if large_cap_ratio >= 80: st.error("🚨 CÁ MẬP XẢ TRỤ. Rủi ro gãy cấu trúc cao.")
-                elif large_cap_ratio <= 45: st.error("🚨 VỠ BONG BÓNG ĐẦU CƠ. Dòng tiền tháo chạy Midcap/Penny.")
-                else: st.error("🚨 Áp lực bán tháo lan rộng (Đứt gãy hệ thống).")
-            elif heat_rate >= 15.0: st.warning("⚠️ CẢNH BÁO SỚM: Bắt đầu có sự phân hóa mạnh.")
-            else: st.success("✅ Trạng thái an toàn.")
+                if vn30_ratio >= 45: 
+                    st.error("🚨 CÁ MẬP XẢ TRỤ. Rủi ro gãy cấu trúc cao (Dòng tiền tháo chạy khỏi VN30).")
+                elif vn30_ratio <= 15: 
+                    st.error("🚨 VỠ BONG BÓNG ĐẦU CƠ. Dòng tiền tháo chạy Midcap/Penny (VN30 vẫn giữ nhịp).")
+                else: 
+                    st.error("🚨 Áp lực bán tháo lan rộng (Đứt gãy hệ thống toàn thị trường).")
+            elif heat_rate >= 15.0: 
+                st.warning("⚠️ CẢNH BÁO SỚM: Bắt đầu có sự phân hóa mạnh.")
+            else: 
+                st.success("✅ Trạng thái an toàn.")
             
             if not df_flagged.empty:
                 show_df = df_flagged[['Ticker', 'Cap', 'Z_Volatility', 'MSE']].sort_values('MSE', ascending=False)
@@ -611,23 +619,28 @@ elif menu == "C. Backtest Center":
             
             for date, group in grouped:
                 heat_rate = (group['Is_Flagged'].sum() / len(group)) * 100
-                large_cap_flagged = group[group['Is_Flagged'] & (group['Cap'] == 'Large')].shape[0]
+                
+                # Tính số lượng mã VN30 bị cắm cờ (Flagged)
+                vn30_flagged = group[group['Is_Flagged'] & group['Ticker'].isin(VN30_TICKERS)].shape[0]
                 total_flagged = group['Is_Flagged'].sum()
                 
                 results_history.append({
                     'Date': date, 'Heat_Rate': heat_rate,
                     'Market_Breadth': group['Market_Breadth'].iloc[0] * 100,
-                    'Large_Cap_Flagged': large_cap_flagged, 'Total_Flagged': total_flagged
+                    'VN30_Flagged': vn30_flagged, 'Total_Flagged': total_flagged
                 })
                 
             df_res = pd.DataFrame(results_history)
             df_res[f'Heat_Rate_EMA_{ema_span}'] = df_res['Heat_Rate'].ewm(span=ema_span, adjust=False).mean()
-            df_res['Large_Cap_Ratio'] = (df_res['Large_Cap_Flagged'] / df_res['Total_Flagged'].replace(0, 1)) * 100
-            df_res.loc[df_res['Total_Flagged'] == 0, 'Large_Cap_Ratio'] = 0 
-            df_res[f'Ratio_EMA_{ema_span}'] = df_res['Large_Cap_Ratio'].ewm(span=ema_span, adjust=False).mean()
+            
+            # Cập nhật thành tỷ lệ VN30 / Tổng Flagged
+            df_res['VN30_Ratio'] = (df_res['VN30_Flagged'] / df_res['Total_Flagged'].replace(0, 1)) * 100
+            df_res.loc[df_res['Total_Flagged'] == 0, 'VN30_Ratio'] = 0 
+            df_res[f'Ratio_EMA_{ema_span}'] = df_res['VN30_Ratio'].ewm(span=ema_span, adjust=False).mean()
             
             export_csv_button(df_res, file_name=f"Backtest_Macro_{start_dt.date()}_to_{end_dt.date()}.csv", button_label="📥 Tải Báo cáo Chu kỳ Vĩ mô (CSV)")
             
+            # Biểu đồ 1: Vẫn giữ nguyên cấu trúc (Heat Rate & Breadth)
             fig1 = go.Figure()
             fig1.add_trace(go.Scatter(x=df_res['Date'], y=df_res['Heat_Rate'], mode='lines', name='Raw Heat Rate', line=dict(color='black', dash='dash', width=1)))
             fig1.add_trace(go.Scatter(x=df_res['Date'], y=df_res[f'Heat_Rate_EMA_{ema_span}'], mode='lines', name=f'Heat Rate (EMA {ema_span})', line=dict(color='#ff4b4b', width=3)))
@@ -641,11 +654,10 @@ elif menu == "C. Backtest Center":
             fig1.update_layout(title="1. Rủi ro Đảo chiều Vĩ mô", yaxis=dict(title="Heat Rate (%)"), yaxis2=dict(title="Market Breadth (%)", overlaying="y", side="right"), hovermode="x unified", template="plotly_white")
             st.plotly_chart(fig1, use_container_width=True)
             
+            # Biểu đồ 2: Đã sửa lại VN30 vs The Remaining và xoá các ngưỡng cố định
             fig2 = go.Figure()
-            fig2.add_trace(go.Bar(x=df_res['Date'], y=df_res['Large_Cap_Ratio'], name='Tỉ lệ ngày lẻ', marker_color='rgba(156, 114, 186, 0.4)'))
+            fig2.add_trace(go.Bar(x=df_res['Date'], y=df_res['VN30_Ratio'], name='Tỉ lệ ngày lẻ', marker_color='rgba(156, 114, 186, 0.4)'))
             fig2.add_trace(go.Scatter(x=df_res['Date'], y=df_res[f'Ratio_EMA_{ema_span}'], mode='lines', name=f'Xu hướng cấu trúc (EMA {ema_span})', line=dict(color='#6a0dad', width=3)))
-            fig2.add_hline(y=80, line_width=2, line_dash="solid", line_color="red", annotation_text="80%", annotation_font=dict(color="red"))
-            fig2.add_hline(y=61.5, line_width=1.5, line_dash="dash", line_color="black", annotation_text="61.5%", annotation_font=dict(color="black"))
-            fig2.add_hline(y=45, line_width=2, line_dash="solid", line_color="blue", annotation_text="45%", annotation_position="bottom right", annotation_font=dict(color="blue"))
-            fig2.update_layout(title="2. Định vị Nguồn gốc Rủi ro (Large-cap vs Mid/Penny)", yaxis=dict(title="Tỉ lệ Large-cap / Flagged (%)", range=[0, 105]), hovermode="x unified", template="plotly_white")
+            
+            fig2.update_layout(title="2. Định vị Nguồn gốc Rủi ro (VN30 vs The Remaining)", yaxis=dict(title="Tỉ lệ VN30 / Flagged (%)", range=[0, 105]), hovermode="x unified", template="plotly_white")
             st.plotly_chart(fig2, use_container_width=True)
